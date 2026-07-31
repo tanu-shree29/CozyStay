@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+server/uploads/*
+!server/uploads/.gitkeep
+*.log
+.DS_Store
+Thumbs.db
+*.tsbuildinfo
+
+# Python / Flask
+venv/
+__pycache__/
+*.pyc
+*.pyo
+instance/
+*.db
+ca.pem
+flask*.log
