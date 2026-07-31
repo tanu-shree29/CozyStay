@@ -1,24 +1,32 @@
 import { useState } from 'react';
 import {
-  Container, Typography, Box, Paper, Avatar, TextField, Button, Alert, Grid,
+  Container, Typography, Box, Paper, Avatar, TextField, Button, Alert, Grid, CircularProgress,
 } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 import PhotoUploader from '../components/PhotoUploader';
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const [photoUrl, setPhotoUrl] = useState(user?.profilePhoto || '');
   const [name, setName] = useState(user?.name || '');
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   if (!user) return null;
 
-  const handleSave = () => {
-    const existing = JSON.parse(localStorage.getItem('profile-updates') || '{}');
-    existing[user.id] = { name, profilePhoto: photoUrl };
-    localStorage.setItem('profile-updates', JSON.stringify(existing));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    setError('');
+    setSaving(true);
+    try {
+      await updateProfile({ name, profilePhoto: photoUrl });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -62,9 +70,10 @@ export default function Profile() {
         </Grid>
 
         {saved && <Alert severity="success" sx={{ mb: 2, borderRadius: 1 }}>Profile updated!</Alert>}
+        {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 1 }}>{error}</Alert>}
 
-        <Button variant="contained" onClick={handleSave} sx={{ px: 4 }}>
-          Save Changes
+        <Button variant="contained" onClick={handleSave} disabled={saving} sx={{ px: 4 }}>
+          {saving ? <CircularProgress size={22} color="inherit" /> : 'Save Changes'}
         </Button>
       </Paper>
     </Container>

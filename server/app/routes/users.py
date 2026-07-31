@@ -28,18 +28,22 @@ def get_user(id):
 @users_bp.route('/<int:id>', methods=['PUT'])
 @jwt_required()
 def update_user(id):
+    user_id = int(get_jwt_identity())
     claims = get_jwt()
-    if claims.get('role') != 'admin':
-        return jsonify({'error': 'Admin access required'}), 403
     user = User.query.get(id)
     if not user:
         return jsonify({'error': 'User not found'}), 404
+
+    is_admin = claims.get('role') == 'admin'
+    if not is_admin and user_id != id:
+        return jsonify({'error': 'Admin access required'}), 403
 
     data = request.get_json()
     if not data:
         return jsonify({'error': 'No input data'}), 400
 
-    for field in ['name', 'email', 'role']:
+    allowed_fields = ['name', 'email', 'role', 'profile_photo'] if is_admin else ['name', 'profile_photo']
+    for field in allowed_fields:
         if field in data:
             setattr(user, field, data[field])
 

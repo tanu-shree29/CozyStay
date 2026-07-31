@@ -1,76 +1,120 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { notificationApi, contactRequestApi } from '../api';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ALICE_TOKEN = 'mock-jwt-1-1';
+const { client } = vi.hoisted(() => ({
+  client: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+}));
+
+vi.mock('../api/client', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../api/client')>();
+  return { ...mod, apiClient: client };
+});
+
+import { notificationApi, contactRequestApi, propertyApi } from '../api';
+
+const SNAKE_NOTIF = {
+  id: 1,
+  user_id: 3,
+  type: 'contact_request',
+  reference_id: 7,
+  title: 'New Contact Request',
+  message: 'A guest wants to connect',
+  action_url: '/messages',
+  read: false,
+  created_at: '2026-07-31T06:00:00',
+};
 
 beforeEach(() => {
   localStorage.clear();
+  vi.clearAllMocks();
 });
 
 describe('notificationApi', () => {
-  it('returns only notifications for the current user', async () => {
-    localStorage.setItem('token', ALICE_TOKEN);
+  it('maps notifications from snake_case to the frontend shape', async () => {
+    client.get.mockResolvedValueOnce({ data: [SNAKE_NOTIF] });
     const notifs = await notificationApi.getAll();
-    expect(notifs.length).toBeGreaterThan(0);
-    expect(notifs.every((n) => n.userId === '1')).toBe(true);
+    expect(client.get).toHaveBeenCalledWith('/notifications/');
+    expect(notifs).toEqual([
+      {
+        id: '1',
+        userId: '3',
+        type: 'contact_request',
+        referenceId: '7',
+        title: 'New Contact Request',
+        message: 'A guest wants to connect',
+        read: false,
+        actionUrl: '/messages',
+        createdAt: '2026-07-31T06:00:00',
+      },
+    ]);
   });
 
   it('reports an unread count', async () => {
-    localStorage.setItem('token', ALICE_TOKEN);
+    client.get.mockResolvedValueOnce({ data: { count: 3 } });
     const count = await notificationApi.getUnreadCount();
-    expect(count).toBeGreaterThanOrEqual(1);
+    expect(count).toBe(3);
+    expect(client.get).toHaveBeenCalledWith('/notifications/unread-count');
   });
 
   it('marks a single notification as read', async () => {
-    localStorage.setItem('token', ALICE_TOKEN);
-    const notifs = await notificationApi.getAll();
-    const target = notifs.find((n) => !n.read)!;
-    await notificationApi.markRead(target.id);
-
-    const after = await notificationApi.getAll();
-    expect(after.find((n) => n.id === target.id)!.read).toBe(true);
-    const count = await notificationApi.getUnreadCount();
-    expect(count).toBe(notifs.filter((n) => !n.read).length - 1);
+    client.put.mockResolvedValueOnce({ data: { ...SNAKE_NOTIF, read: true } });
+    await notificationApi.markRead('1');
+    expect(client.put).toHaveBeenCalledWith('/notifications/1/read');
   });
 
   it('marks all notifications as read', async () => {
-    localStorage.setItem('token', ALICE_TOKEN);
+    client.put.mockResolvedValueOnce({ data: { message: 'All marked as read' } });
     await notificationApi.markAllRead();
-    const count = await notificationApi.getUnreadCount();
-    expect(count).toBe(0);
+    expect(client.put).toHaveBeenCalledWith('/notifications/read-all');
   });
 
   it('deletes a notification', async () => {
-    localStorage.setItem('token', ALICE_TOKEN);
-    const before = await notificationApi.getAll();
-    const target = before[0];
-    await notificationApi.delete(target.id);
+    client.delete.mockResolvedValueOnce({ data: { message: 'Notification deleted' } });
+    await notificationApi.delete('1');
+    expect(client.delete).toHaveBeenCalledWith('/notifications/1');
+  });
 
-    const after = await notificationApi.getAll();
-    expect(after.some((n) => n.id === target.id)).toBe(false);
+  it('normalizes backend {error} payloads into {message} for the UI', async () => {
+    client.get.mockRejectedValueOnce({ response: { status: 404, data: { error: 'Not found' } } });
+    await expect(notificationApi.getAll()).rejects.toMatchObject({
+      response: { status: 404, data: { message: 'Not found' } },
+    });
   });
 });
 
-describe('contactRequestApi (notification side effects)', () => {
-  it('creates a host notification when a request is created', async () => {
-    localStorage.setItem('token', 'mock-jwt-8-1');
-    const prop = await (await import('../api')).propertyApi.getById('1');
-    const req = await contactRequestApi.create({ propertyId: prop.id, message: 'Hi!' });
-
-    localStorage.setItem('token', ALICE_TOKEN);
-    const notifs = await notificationApi.getAll();
-    expect(notifs.some((n) => n.referenceId === req.id && n.type === 'contact_request')).toBe(true);
+describe('contactRequestApi', () => {
+  it('posts the property_id payload when creating a request', async () => {
+    localStorage.setItem('token', 'some-token');
+    client.post.mockResolvedValueOnce({
+      data: {
+        id: 5, property_id: 1, guest_id: 3, guest_name: 'Charlie', host_id: 1,
+        status: 'pending', message: 'Hi!', created_at: '2026-07-31T06:00:00',
+      },
+    });
+    await contactRequestApi.create({ propertyId: '1', message: 'Hi!' });
+    expect(client.post).toHaveBeenCalledWith('/contact-requests/', {
+      property_id: 1,
+      message: 'Hi!',
+    });
   });
 
-  it('creates a guest notification when the host responds', async () => {
-    localStorage.setItem('token', 'mock-jwt-5-1');
-    const req = await contactRequestApi.create({ propertyId: '1', message: 'Interested!' });
+  it('responds with the action the host chose', async () => {
+    client.put.mockResolvedValueOnce({ data: { id: 5, status: 'approved' } });
+    await contactRequestApi.respond('5', 'approved');
+    expect(client.put).toHaveBeenCalledWith('/contact-requests/5/respond', { action: 'approved' });
+  });
 
-    localStorage.setItem('token', ALICE_TOKEN);
-    await contactRequestApi.respond(req.id, 'approved');
-
-    localStorage.setItem('token', 'mock-jwt-5-1');
-    const notifs = await notificationApi.getAll();
-    expect(notifs.some((n) => n.referenceId === req.id && n.message.includes('was approved'))).toBe(true);
+  it('loads property details by id through the real endpoint', async () => {
+    client.get.mockResolvedValueOnce({
+      data: {
+        id: 1, host_id: 1, host_name: 'Alice Host', title: 'Cozy Beach House',
+        price_per_night: 150, location: 'Miami, FL', photos: ['a.jpg'], amenities: ['WiFi'],
+        is_active: true, review_count: 1, avg_rating: 5, created_at: '2026-07-31T06:00:00',
+      },
+    });
+    const prop = await propertyApi.getById('1');
+    expect(client.get).toHaveBeenCalledWith('/properties/1');
+    expect(prop.hostName).toBe('Alice Host');
+    expect(prop.pricePerNight).toBe(150);
+    expect(prop.avgRating).toBe(5);
   });
 });

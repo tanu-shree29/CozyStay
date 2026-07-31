@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode, FC } from 'react';
 import { User } from '../types';
-import { authApi } from '../api';
+import { authApi, userApi } from '../api';
 
 interface AuthContextValue {
   user: User | null;
@@ -8,6 +8,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string, role?: string) => Promise<void>;
   googleLogin: (credential: string) => Promise<void>;
+  updateProfile: (data: { name?: string; profilePhoto?: string }) => Promise<void>;
   logout: () => void;
 }
 
@@ -48,13 +49,19 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     setUser(res.user);
   };
 
+  const updateProfile = async (data: { name?: string; profilePhoto?: string }) => {
+    if (!user) return;
+    const updated = await userApi.update(user.id, data);
+    setUser(updated);
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, googleLogin, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, googleLogin, updateProfile, logout }}>
       {children}
     </AuthContext.Provider>
   );

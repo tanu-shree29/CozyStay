@@ -8,9 +8,9 @@ import { GoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
 
 const DEMO_CREDENTIALS = [
-  { label: 'Guest', email: 'guest@demo.com', password: 'demo123' },
-  { label: 'Host', email: 'host@demo.com', password: 'demo123' },
-  { label: 'Admin', email: 'admin@example.com', password: 'admin123' },
+  { label: 'Guest', email: 'charlie@example.com', password: 'password123' },
+  { label: 'Host', email: 'alice@example.com', password: 'password123' },
+  { label: 'Admin', email: 'admin@cozystay.com', password: 'admin123' },
 ];
 
 export default function Login() {

@@ -1,465 +1,415 @@
-import { AuthResponse, Property, Booking, User, Review, ContactRequest, Message, Notification, Conversation } from '../types';
-import { mockUsers, mockProperties, mockBookings, mockReviews, mockContactRequests, mockMessages, mockNotifications } from './mockData';
+import { AuthResponse, Booking, ContactRequest, Conversation, Message, Notification, Property, Review, User } from '../types';
+import { apiClient, toAppError } from './client';
 
-let users = [...mockUsers];
-let properties = [...mockProperties];
-let bookings = [...mockBookings];
-let reviews = [...mockReviews];
-let contactRequests = [...mockContactRequests];
-let messages = [...mockMessages];
-let notifications = [...mockNotifications];
+const asString = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 
-const delay = (ms = 400) => new Promise((r) => setTimeout(r, ms));
-
-let tokenCounter = 0;
-function generateToken(user: User): string {
-  return `mock-jwt-${user.id}-${++tokenCounter}`;
+function mapUser(u: any): User {
+  return {
+    id: asString(u.id),
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    profilePhoto: u.profile_photo ?? undefined,
+    createdAt: u.created_at ?? '',
+  };
 }
 
-function getCurrentUserId(): string {
-  const token = localStorage.getItem('token');
-  if (!token) return '';
-  const match = token.match(/^mock-jwt-(\d+)-/);
-  return match ? match[1] : '';
+function mapProperty(p: any): Property {
+  return {
+    id: asString(p.id),
+    hostId: asString(p.host_id),
+    hostName: p.host_name ?? '',
+    hostPhoto: p.host_photo ?? undefined,
+    title: p.title,
+    description: p.description,
+    pricePerNight: Number(p.price_per_night),
+    location: p.location,
+    photos: p.photos ?? [],
+    amenities: p.amenities ?? [],
+    isActive: p.is_active,
+    avgRating: p.avg_rating ?? undefined,
+    reviewCount: p.review_count ?? 0,
+    createdAt: p.created_at ?? '',
+    blockedDates: p.blocked_dates ?? undefined,
+  };
+}
+
+function mapBooking(b: any): Booking {
+  return {
+    id: asString(b.id),
+    propertyId: asString(b.property_id),
+    propertyTitle: b.property_title ?? '',
+    propertyPhoto: b.property_photo ?? '',
+    guestId: asString(b.guest_id),
+    guestName: b.guest_name ?? '',
+    hostId: asString(b.host_id),
+    hostName: b.host_name ?? undefined,
+    property: b.property ? mapProperty(b.property) : undefined,
+    guest: b.guest ?? undefined,
+    startDate: b.start_date ?? '',
+    endDate: b.end_date ?? '',
+    status: b.status,
+    createdAt: b.created_at ?? '',
+  };
+}
+
+function mapReview(r: any): Review {
+  return {
+    id: asString(r.id),
+    bookingId: asString(r.booking_id),
+    userId: asString(r.user_id),
+    userName: r.user_name ?? '',
+    propertyId: asString(r.property_id),
+    rating: Number(r.rating),
+    text: r.text ?? '',
+    createdAt: r.created_at ?? '',
+  };
+}
+
+function mapContactRequest(cr: any): ContactRequest {
+  return {
+    id: asString(cr.id),
+    propertyId: asString(cr.property_id),
+    propertyTitle: cr.property_title ?? undefined,
+    guestId: asString(cr.guest_id),
+    guestName: cr.guest_name ?? '',
+    hostId: asString(cr.host_id),
+    hostName: cr.host_name ?? undefined,
+    status: cr.status,
+    message: cr.message ?? undefined,
+    createdAt: cr.created_at ?? '',
+    updatedAt: cr.updated_at ?? undefined,
+  };
+}
+
+function mapMessage(m: any): Message {
+  return {
+    id: asString(m.id),
+    contactRequestId: asString(m.contact_request_id),
+    senderId: asString(m.sender_id),
+    senderName: m.sender_name ?? '',
+    text: m.text,
+    createdAt: m.created_at ?? '',
+    readAt: m.read_at ?? undefined,
+    deleted: m.deleted ?? false,
+  };
+}
+
+function mapNotification(n: any): Notification {
+  return {
+    id: asString(n.id),
+    userId: asString(n.user_id),
+    type: n.type,
+    referenceId: asString(n.reference_id),
+    title: n.title,
+    message: n.message ?? '',
+    read: n.read,
+    actionUrl: n.action_url ?? undefined,
+    createdAt: n.created_at ?? '',
+  };
+}
+
+function mapConversation(c: any): Conversation {
+  return {
+    id: c.id,
+    contactRequestId: asString(c.contact_request_id),
+    withUserId: asString(c.with_user_id),
+    withUserName: c.with_user_name,
+    withUserPhoto: c.with_user_photo ?? '',
+    propertyTitle: c.property_title,
+    propertyId: asString(c.property_id),
+    lastMessage: c.last_message ?? undefined,
+    lastMessageAt: c.last_message_at ?? undefined,
+    unread: Number(c.unread ?? 0),
+  };
 }
 
 export const authApi = {
   register: async (data: { name: string; email: string; password: string; role?: string }): Promise<AuthResponse> => {
-    await delay();
-    const exists = users.find((u) => u.email === data.email);
-    if (exists) throw { response: { data: { message: 'Email already registered' } } };
-    const user: User = {
-      id: String(users.length + 1),
-      name: data.name,
-      email: data.email,
-      role: (data.role as User['role']) || 'guest',
-      createdAt: new Date().toISOString(),
-    };
-    users.push(user);
-    return { token: generateToken(user), user };
+    try {
+      const res = await apiClient.post('/auth/register', data);
+      return { token: res.data.token, user: mapUser(res.data.user) };
+    } catch (e) { toAppError(e); }
   },
   login: async (data: { email: string; password: string }): Promise<AuthResponse> => {
-    await delay();
-    const user = users.find((u) => u.email === data.email);
-    if (!user) throw { response: { data: { message: 'Invalid credentials' } } };
-    return { token: generateToken(user), user };
+    try {
+      const res = await apiClient.post('/auth/login', data);
+      return { token: res.data.token, user: mapUser(res.data.user) };
+    } catch (e) { toAppError(e); }
   },
   googleLogin: async (credential: string): Promise<AuthResponse> => {
-    await delay();
-    const response = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=${credential}`);
-    const payload = await response.json();
-    let user = users.find((u) => u.email === payload.email);
-    if (!user) {
-      user = {
-        id: String(users.length + 1),
-        name: payload.name || payload.email.split('@')[0],
-        email: payload.email,
-        role: 'guest',
-        profilePhoto: payload.picture,
-        createdAt: new Date().toISOString(),
-      };
-      users.push(user);
-    }
-    return { token: generateToken(user), user };
+    try {
+      const res = await apiClient.post('/auth/google', { credential });
+      return { token: res.data.token, user: mapUser(res.data.user) };
+    } catch (e) { toAppError(e); }
   },
   getMe: async (): Promise<User> => {
-    await delay(200);
-    const token = localStorage.getItem('token');
-    if (!token) throw { response: { status: 401 } };
-    const userId = getCurrentUserId();
-    const user = users.find((u) => u.id === userId);
-    if (!user) throw { response: { status: 401 } };
-    return user;
+    try {
+      const res = await apiClient.get('/auth/me');
+      return mapUser(res.data.user);
+    } catch (e) { toAppError(e); }
   },
 };
 
 export const propertyApi = {
-  getAll: async (params?: { location?: string; maxPrice?: number }): Promise<Property[]> => {
-    await delay();
-    let filtered = properties.filter((p) => p.isActive);
-    if (params?.location) {
-      const q = params.location.toLowerCase();
-      filtered = filtered.filter((p) => p.location.toLowerCase().includes(q));
-    }
-    if (params?.maxPrice) {
-      filtered = filtered.filter((p) => p.pricePerNight <= params.maxPrice!);
-    }
-    return filtered;
+  getAll: async (params?: { location?: string; maxPrice?: number; amenities?: string[] }): Promise<Property[]> => {
+    try {
+      const res = await apiClient.get('/properties', {
+        params: {
+          location: params?.location || undefined,
+          max_price: params?.maxPrice || undefined,
+          amenities: params?.amenities && params.amenities.length > 0 ? params.amenities.join(',') : undefined,
+        },
+      });
+      return res.data.map(mapProperty);
+    } catch (e) { toAppError(e); }
   },
   getById: async (id: string): Promise<Property> => {
-    await delay();
-    const prop = properties.find((p) => p.id === id);
-    if (!prop) throw { response: { status: 404, data: { message: 'Listing not found' } } };
-    const propReviews = reviews.filter((r) => r.propertyId === id);
-    if (propReviews.length > 0) {
-      prop.avgRating = Math.round((propReviews.reduce((s, r) => s + r.rating, 0) / propReviews.length) * 10) / 10;
-      prop.reviewCount = propReviews.length;
-    }
-    return prop;
+    try {
+      const res = await apiClient.get(`/properties/${id}`);
+      return mapProperty(res.data);
+    } catch (e) { toAppError(e); }
   },
   create: async (data: Partial<Property>): Promise<Property> => {
-    await delay();
-    const token = localStorage.getItem('token');
-    const userId = getCurrentUserId();
-    const user = users.find((u) => u.id === userId);
-    const prop: Property = {
-      id: String(properties.length + 1),
-      hostId: userId || '',
-      hostName: user?.name || '',
-      title: data.title || '',
-      description: data.description || '',
-      pricePerNight: data.pricePerNight || 0,
-      location: data.location || '',
-      photos: data.photos || [],
-      amenities: data.amenities || [],
-      isActive: true,
-      avgRating: 0,
-      reviewCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-    properties.push(prop);
-    return prop;
+    try {
+      const res = await apiClient.post('/properties', {
+        title: data.title,
+        description: data.description,
+        price_per_night: data.pricePerNight,
+        location: data.location,
+        photos: data.photos,
+        amenities: data.amenities ?? [],
+      });
+      return mapProperty(res.data);
+    } catch (e) { toAppError(e); }
   },
   update: async (id: string, data: Partial<Property>): Promise<Property> => {
-    await delay();
-    const idx = properties.findIndex((p) => p.id === id);
-    if (idx === -1) throw { response: { status: 404 } };
-    properties[idx] = { ...properties[idx], ...data };
-    return properties[idx];
+    try {
+      const res = await apiClient.put(`/properties/${id}`, {
+        title: data.title,
+        description: data.description,
+        price_per_night: data.pricePerNight,
+        location: data.location,
+        photos: data.photos,
+        amenities: data.amenities,
+      });
+      return mapProperty(res.data);
+    } catch (e) { toAppError(e); }
   },
   delete: async (id: string): Promise<{ message: string }> => {
-    await delay();
-    const idx = properties.findIndex((p) => p.id === id);
-    if (idx > -1) {
-      properties[idx] = { ...properties[idx], isActive: false };
-    }
-    return { message: 'Listing deactivated' };
+    try {
+      const res = await apiClient.delete(`/properties/${id}`);
+      return res.data;
+    } catch (e) { toAppError(e); }
   },
 };
 
 export const bookingApi = {
   create: async (data: { propertyId: string; startDate: string; endDate: string }): Promise<Booking> => {
-    await delay();
-    const token = localStorage.getItem('token');
-    const guestId = getCurrentUserId() || '';
-    const guest = users.find((u) => u.id === guestId);
-    const prop = properties.find((p) => p.id === data.propertyId);
-    if (!prop) throw { response: { data: { message: 'Property not found' } } };
-    if (new Date(data.endDate) <= new Date(data.startDate)) {
-      throw { response: { data: { message: 'End date must be after start date' } } };
-    }
-    const overlap = bookings.find(
-      (b) =>
-        b.propertyId === data.propertyId &&
-        b.status === 'confirmed' &&
-        new Date(b.startDate) < new Date(data.endDate) &&
-        new Date(b.endDate) > new Date(data.startDate)
-    );
-    if (overlap) throw { response: { data: { message: 'These dates are already booked' } } };
-    const booking: Booking = {
-      id: String(bookings.length + 1),
-      propertyId: data.propertyId,
-      propertyTitle: prop.title,
-      propertyPhoto: prop.photos[0],
-      guestId,
-      guestName: guest?.name || '',
-      hostId: prop.hostId,
-      startDate: data.startDate,
-      endDate: data.endDate,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    };
-    bookings.push(booking);
-    return booking;
+    try {
+      const res = await apiClient.post('/bookings/', {
+        property_id: Number(data.propertyId),
+        start_date: data.startDate,
+        end_date: data.endDate,
+      });
+      return mapBooking(res.data);
+    } catch (e) { toAppError(e); }
   },
   getMy: async (): Promise<Booking[]> => {
-    await delay();
-    const token = localStorage.getItem('token');
-    const guestId = getCurrentUserId() || '';
-    return bookings.filter((b) => b.guestId === guestId);
+    try {
+      const res = await apiClient.get('/bookings/my');
+      return res.data.map(mapBooking);
+    } catch (e) { toAppError(e); }
   },
   getRequests: async (): Promise<Booking[]> => {
-    await delay();
-    const token = localStorage.getItem('token');
-    const hostId = getCurrentUserId() || '';
-    return bookings.filter((b) => b.hostId === hostId);
+    try {
+      const res = await apiClient.get('/bookings/requests');
+      return res.data.map(mapBooking);
+    } catch (e) { toAppError(e); }
   },
   respond: async (id: string, action: 'confirmed' | 'declined'): Promise<Booking> => {
-    await delay();
-    const idx = bookings.findIndex((b) => b.id === id);
-    if (idx === -1) throw { response: { status: 404 } };
-    bookings[idx] = { ...bookings[idx], status: action };
-    return bookings[idx];
+    try {
+      const res = await apiClient.put(`/bookings/${id}/respond`, { action });
+      return mapBooking(res.data);
+    } catch (e) { toAppError(e); }
   },
 };
 
 export const reviewApi = {
   getByProperty: async (propertyId: string): Promise<Review[]> => {
-    await delay(200);
-    return reviews.filter((r) => r.propertyId === propertyId);
+    try {
+      const res = await apiClient.get(`/reviews/property/${propertyId}`);
+      return res.data.map(mapReview);
+    } catch (e) { toAppError(e); }
   },
   getByUser: async (userId: string): Promise<Review[]> => {
-    await delay(200);
-    return reviews.filter((r) => r.userId === userId);
+    try {
+      const res = await apiClient.get(`/reviews/user/${userId}`);
+      return res.data.map(mapReview);
+    } catch (e) { toAppError(e); }
   },
   create: async (data: { bookingId: string; propertyId: string; rating: number; text: string }): Promise<Review> => {
-    await delay();
-    const token = localStorage.getItem('token');
-    const userId = getCurrentUserId() || '';
-    const user = users.find((u) => u.id === userId);
-    const review: Review = {
-      id: `r-${Date.now()}`,
-      bookingId: data.bookingId,
-      userId,
-      userName: user?.name || '',
-      propertyId: data.propertyId,
-      rating: data.rating,
-      text: data.text,
-      createdAt: new Date().toISOString(),
-    };
-    reviews.push(review);
-    const prop = properties.find((p) => p.id === data.propertyId);
-    if (prop) {
-      const propReviews = reviews.filter((r) => r.propertyId === data.propertyId);
-      prop.avgRating = Math.round((propReviews.reduce((s, r) => s + r.rating, 0) / propReviews.length) * 10) / 10;
-      prop.reviewCount = propReviews.length;
-    }
-    return review;
+    try {
+      const res = await apiClient.post('/reviews/', {
+        booking_id: Number(data.bookingId),
+        rating: data.rating,
+        text: data.text,
+      });
+      return mapReview(res.data);
+    } catch (e) { toAppError(e); }
   },
 };
 
 export const userApi = {
   getAll: async (): Promise<User[]> => {
-    await delay();
-    return users;
+    try {
+      const res = await apiClient.get('/users/');
+      return res.data.map(mapUser);
+    } catch (e) { toAppError(e); }
   },
   update: async (id: string, data: Partial<User>): Promise<User> => {
-    await delay();
-    const idx = users.findIndex((u) => u.id === id);
-    if (idx > -1) users[idx] = { ...users[idx], ...data };
-    return users[idx];
+    try {
+      const res = await apiClient.put(`/users/${id}`, {
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        profile_photo: data.profilePhoto,
+      });
+      return mapUser(res.data);
+    } catch (e) { toAppError(e); }
   },
   delete: async (id: string): Promise<{ message: string }> => {
-    await delay();
-    users = users.filter((u) => u.id !== id);
-    return { message: 'User deleted' };
+    try {
+      const res = await apiClient.delete(`/users/${id}`);
+      return res.data;
+    } catch (e) { toAppError(e); }
   },
 };
 
 export const contactRequestApi = {
   create: async (data: { propertyId: string; message?: string }): Promise<ContactRequest> => {
-    await delay();
-    const token = localStorage.getItem('token');
-    const guestId = getCurrentUserId() || '';
-    const user = users.find((u) => u.id === guestId);
-    const prop = properties.find((p) => p.id === data.propertyId);
-    if (!prop) throw { response: { data: { message: 'Property not found' } } };
-    const existing = contactRequests.find(
-      (cr) => cr.propertyId === data.propertyId && cr.guestId === guestId && cr.status === 'pending'
-    );
-    if (existing) throw { response: { data: { message: 'You already have a pending request for this property' } } };
-    const cr: ContactRequest = {
-      id: `cr-${Date.now()}`,
-      propertyId: data.propertyId,
-      propertyTitle: prop.title,
-      guestId,
-      guestName: user?.name || '',
-      hostId: prop.hostId,
-      hostName: prop.hostName,
-      status: 'pending',
-      message: data.message,
-      createdAt: new Date().toISOString(),
-    };
-    contactRequests.push(cr);
-    const hostNotif: Notification = {
-      id: `n-${Date.now()}`,
-      userId: prop.hostId,
-      type: 'contact_request',
-      referenceId: cr.id,
-      title: 'New Contact Request',
-      message: `${cr.guestName} wants to connect about "${prop.title}"`,
-      read: false,
-      createdAt: new Date().toISOString(),
-    };
-    notifications.push(hostNotif);
-    return cr;
+    try {
+      const res = await apiClient.post('/contact-requests/', {
+        property_id: Number(data.propertyId),
+        message: data.message ?? '',
+      });
+      return mapContactRequest(res.data);
+    } catch (e) { toAppError(e); }
   },
   getMy: async (role?: string): Promise<ContactRequest[]> => {
-    await delay(200);
-    const token = localStorage.getItem('token');
-    const userId = getCurrentUserId() || '';
-    if (role === 'host') return contactRequests.filter((cr) => cr.hostId === userId);
-    return contactRequests.filter((cr) => cr.guestId === userId);
+    try {
+      const res = await apiClient.get('/contact-requests/', { params: { role: role || '' } });
+      return res.data.map(mapContactRequest);
+    } catch (e) { toAppError(e); }
   },
   respond: async (id: string, action: 'approved' | 'declined'): Promise<ContactRequest> => {
-    await delay();
-    const idx = contactRequests.findIndex((cr) => cr.id === id);
-    if (idx === -1) throw { response: { status: 404 } };
-    contactRequests[idx] = { ...contactRequests[idx], status: action, updatedAt: new Date().toISOString() };
-    const cr = contactRequests[idx];
-    const guestNotif: Notification = {
-      id: `n-${Date.now()}`,
-      userId: cr.guestId,
-      type: 'contact_request',
-      referenceId: cr.id,
-      title: 'Contact Request Update',
-      message: `Your request about "${cr.propertyTitle}" was ${action} by the host.`,
-      read: false,
-      createdAt: new Date().toISOString(),
-    };
-    notifications.push(guestNotif);
-    return cr;
+    try {
+      const res = await apiClient.put(`/contact-requests/${id}/respond`, { action });
+      return mapContactRequest(res.data);
+    } catch (e) { toAppError(e); }
   },
 };
 
 export const messageApi = {
   send: async (contactRequestId: string, text: string): Promise<Message> => {
-    await delay();
-    const token = localStorage.getItem('token');
-    const senderId = getCurrentUserId() || '';
-    const sender = users.find((u) => u.id === senderId);
-    const cr = contactRequests.find((c) => c.id === contactRequestId);
-    if (!cr || cr.status !== 'approved') throw { response: { data: { message: 'Cannot send message' } } };
-    const msg: Message = {
-      id: `m-${Date.now()}`,
-      contactRequestId,
-      senderId,
-      senderName: sender?.name || '',
-      text,
-      deleted: false,
-      createdAt: new Date().toISOString(),
-    };
-    messages.push(msg);
-    const otherId = cr.hostId === senderId ? cr.guestId : cr.hostId;
-    const msgNotif: Notification = {
-      id: `n-${Date.now()}`,
-      userId: otherId,
-      type: 'message',
-      referenceId: msg.id,
-      title: `New message from ${sender?.name || 'User'}`,
-      message: text.slice(0, 100),
-      read: false,
-      createdAt: new Date().toISOString(),
-    };
-    notifications.push(msgNotif);
-    return msg;
+    try {
+      const res = await apiClient.post('/messages/', {
+        contact_request_id: Number(contactRequestId),
+        text,
+      });
+      return mapMessage(res.data);
+    } catch (e) { toAppError(e); }
   },
   getByRequest: async (contactRequestId: string): Promise<Message[]> => {
-    await delay(200);
-    return messages
-      .filter((m) => m.contactRequestId === contactRequestId)
-      .map((m) => ({ ...m, deleted: m.deleted ?? false }));
+    try {
+      const res = await apiClient.get(`/messages/by-request/${contactRequestId}`);
+      return res.data.map(mapMessage);
+    } catch (e) { toAppError(e); }
   },
   markConversationRead: async (contactRequestId: string): Promise<{ updated: number; unread: number }> => {
-    await delay(100);
-    const token = localStorage.getItem('token');
-    const userId = getCurrentUserId() || '';
-    let updated = 0;
-    messages = messages.map((m) => {
-      if (m.contactRequestId === contactRequestId && m.senderId !== userId && !m.readAt) {
-        updated += 1;
-        return { ...m, readAt: new Date().toISOString() };
-      }
-      return m;
-    });
-    return { updated, unread: 0 };
+    try {
+      const res = await apiClient.put(`/messages/by-request/${contactRequestId}/read`);
+      return res.data;
+    } catch (e) { toAppError(e); }
   },
   deleteMessage: async (id: string): Promise<Message> => {
-    await delay(100);
-    const idx = messages.findIndex((m) => m.id === id);
-    if (idx === -1) throw { response: { status: 404 } };
-    messages[idx] = { ...messages[idx], deleted: true };
-    return messages[idx];
+    try {
+      const res = await apiClient.delete(`/messages/${id}`);
+      return mapMessage(res.data);
+    } catch (e) { toAppError(e); }
   },
   getConversations: async (): Promise<Conversation[]> => {
-    await delay(200);
-    const token = localStorage.getItem('token');
-    const userId = getCurrentUserId() || '';
-    const approved = contactRequests.filter(
-      (cr) => (cr.hostId === userId || cr.guestId === userId) && cr.status === 'approved'
-    );
-    return approved.map((cr) => {
-      const convMsgs = messages
-        .filter((m) => m.contactRequestId === cr.id)
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      const last = convMsgs[convMsgs.length - 1];
-      const otherId = cr.hostId === userId ? cr.guestId : cr.hostId;
-      const other = users.find((u) => u.id === otherId);
-      const unread = convMsgs.filter((m) => m.senderId !== userId && !m.readAt).length;
-      return {
-        id: `conv-${cr.id}`,
-        contactRequestId: cr.id,
-        withUserId: otherId,
-        withUserName: other?.name || 'Unknown',
-        withUserPhoto: other?.profilePhoto || '',
-        propertyTitle: cr.propertyTitle || '',
-        propertyId: cr.propertyId,
-        lastMessage: last && !last.deleted ? last.text : undefined,
-        lastMessageAt: last?.createdAt,
-        unread,
-      };
-    });
+    try {
+      const res = await apiClient.get('/messages/conversations');
+      return res.data.map(mapConversation);
+    } catch (e) { toAppError(e); }
   },
 };
 
 export const notificationApi = {
   getAll: async (): Promise<Notification[]> => {
-    await delay(200);
-    const token = localStorage.getItem('token');
-    const userId = getCurrentUserId() || '';
-    return notifications.filter((n) => n.userId === userId).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    try {
+      const res = await apiClient.get('/notifications/');
+      return res.data.map(mapNotification);
+    } catch (e) { toAppError(e); }
   },
   getUnreadCount: async (): Promise<number> => {
-    await delay(100);
-    const token = localStorage.getItem('token');
-    const userId = getCurrentUserId() || '';
-    return notifications.filter((n) => n.userId === userId && !n.read).length;
+    try {
+      const res = await apiClient.get('/notifications/unread-count');
+      return Number(res.data.count ?? 0);
+    } catch (e) { toAppError(e); }
   },
   markRead: async (id: string): Promise<void> => {
-    await delay(100);
-    const idx = notifications.findIndex((n) => n.id === id);
-    if (idx > -1) notifications[idx] = { ...notifications[idx], read: true };
+    try {
+      await apiClient.put(`/notifications/${id}/read`);
+    } catch (e) { toAppError(e); }
   },
   markAllRead: async (): Promise<void> => {
-    await delay(100);
-    const token = localStorage.getItem('token');
-    const userId = getCurrentUserId() || '';
-    notifications = notifications.map((n) => (n.userId === userId ? { ...n, read: true } : n));
+    try {
+      await apiClient.put('/notifications/read-all');
+    } catch (e) { toAppError(e); }
   },
   delete: async (id: string): Promise<{ message: string }> => {
-    await delay(100);
-    notifications = notifications.filter((n) => n.id !== id);
-    return { message: 'Notification deleted' };
+    try {
+      const res = await apiClient.delete(`/notifications/${id}`);
+      return res.data;
+    } catch (e) { toAppError(e); }
   },
 };
 
 export const adminApi = {
   getStats: async (): Promise<{ totalUsers: number; totalActiveListings: number; totalBookings: number }> => {
-    await delay();
-    return {
-      totalUsers: users.length,
-      totalActiveListings: properties.filter((p) => p.isActive).length,
-      totalBookings: bookings.length,
-    };
+    try {
+      const res = await apiClient.get('/admin/stats');
+      return {
+        totalUsers: Number(res.data.total_users ?? 0),
+        totalActiveListings: Number(res.data.total_active_listings ?? 0),
+        totalBookings: Number(res.data.total_bookings ?? 0),
+      };
+    } catch (e) { toAppError(e); }
   },
   getListings: async (): Promise<Property[]> => {
-    await delay();
-    return properties;
+    try {
+      const res = await apiClient.get('/admin/listings');
+      return res.data.map(mapProperty);
+    } catch (e) { toAppError(e); }
   },
   getBookings: async (): Promise<Booking[]> => {
-    await delay();
-    return bookings;
+    try {
+      const res = await apiClient.get('/admin/bookings');
+      return res.data.map(mapBooking);
+    } catch (e) { toAppError(e); }
   },
   deleteListing: async (id: string): Promise<{ message: string }> => {
-    await delay();
-    properties = properties.map((p) => (p.id === id ? { ...p, isActive: false } : p));
-    return { message: 'Listing deactivated' };
+    try {
+      const res = await apiClient.delete(`/admin/listings/${id}`);
+      return res.data;
+    } catch (e) { toAppError(e); }
   },
   deleteBooking: async (id: string): Promise<{ message: string }> => {
-    await delay();
-    bookings = bookings.filter((b) => b.id !== id);
-    return { message: 'Booking deleted' };
+    try {
+      const res = await apiClient.delete(`/admin/bookings/${id}`);
+      return res.data;
+    } catch (e) { toAppError(e); }
   },
 };

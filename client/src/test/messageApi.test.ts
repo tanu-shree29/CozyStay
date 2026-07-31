@@ -1,63 +1,95 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { client } = vi.hoisted(() => ({
+  client: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+}));
+
+vi.mock('../api/client', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../api/client')>();
+  return { ...mod, apiClient: client };
+});
+
 import { messageApi } from '../api';
 
-const BOB_TOKEN = 'mock-jwt-2-1';
-const ALICE_TOKEN = 'mock-jwt-1-1';
+const SNAKE_MSG = {
+  id: 1,
+  contact_request_id: 7,
+  sender_id: 1,
+  sender_name: 'Alice Host',
+  text: 'Are you there?',
+  deleted: false,
+  created_at: '2026-07-31T06:00:00',
+  read_at: null,
+};
 
 beforeEach(() => {
   localStorage.clear();
+  vi.clearAllMocks();
 });
 
 describe('messageApi.getConversations', () => {
-  it('returns only approved conversations for the user', async () => {
-    localStorage.setItem('token', BOB_TOKEN);
+  it('maps backend conversations into the frontend shape', async () => {
+    client.get.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'conv-7',
+          contact_request_id: 7,
+          with_user_id: 3,
+          with_user_name: 'Charlie Guest',
+          with_user_photo: '',
+          property_title: 'Cozy Beach House',
+          property_id: 1,
+          last_message: 'Are you there?',
+          last_message_deleted: false,
+          last_message_at: '2026-07-31T06:00:00',
+          unread: 1,
+        },
+      ],
+    });
     const convos = await messageApi.getConversations();
-    expect(convos.length).toBeGreaterThanOrEqual(1);
-    expect(convos.every((c) => c.contactRequestId === 'cr1' || c.propertyId === '1')).toBe(true);
+    expect(client.get).toHaveBeenCalledWith('/messages/conversations');
+    expect(convos).toEqual([
+      {
+        id: 'conv-7',
+        contactRequestId: '7',
+        withUserId: '3',
+        withUserName: 'Charlie Guest',
+        withUserPhoto: '',
+        propertyTitle: 'Cozy Beach House',
+        propertyId: '1',
+        lastMessage: 'Are you there?',
+        lastMessageAt: '2026-07-31T06:00:00',
+        unread: 1,
+      },
+    ]);
   });
 
-  it('computes unread count for messages from the other party', async () => {
-    localStorage.setItem('token', ALICE_TOKEN);
-    await messageApi.send('cr1', 'Are you there?');
-    localStorage.setItem('token', BOB_TOKEN);
-    const convos = await messageApi.getConversations();
-    const cr1 = convos.find((c) => c.contactRequestId === 'cr1')!;
-    expect(cr1.unread).toBe(1);
-    expect(cr1.lastMessage).toBe('Are you there?');
+  it('sends the contact_request_id and text to the real endpoint', async () => {
+    client.post.mockResolvedValueOnce({ data: SNAKE_MSG });
+    const sent = await messageApi.send('7', 'Are you there?');
+    expect(client.post).toHaveBeenCalledWith('/messages/', {
+      contact_request_id: 7,
+      text: 'Are you there?',
+    });
+    expect(sent.contactRequestId).toBe('7');
+    expect(sent.senderName).toBe('Alice Host');
   });
 });
 
 describe('messageApi.markConversationRead', () => {
-  it('marks messages from the other party as read and zeroes unread', async () => {
-    localStorage.setItem('token', ALICE_TOKEN);
-    await messageApi.send('cr1', 'New message');
-    localStorage.setItem('token', BOB_TOKEN);
-
-    const before = await messageApi.getConversations();
-    const cr1Before = before.find((c) => c.contactRequestId === 'cr1')!;
-    expect(cr1Before.unread).toBeGreaterThan(0);
-
-    const result = await messageApi.markConversationRead('cr1');
-    expect(result.updated).toBe(cr1Before.unread);
-
-    const after = await messageApi.getConversations();
-    expect(after.find((c) => c.contactRequestId === 'cr1')!.unread).toBe(0);
-
-    const msgs = await messageApi.getByRequest('cr1');
-    const fromAlice = msgs.filter((m) => m.senderId === '1' && m.text === 'New message');
-    expect(fromAlice.length).toBe(1);
-    expect(fromAlice[0].readAt).toBeTruthy();
+  it('PUTs the read marker and returns the unread summary', async () => {
+    client.put.mockResolvedValueOnce({ data: { updated: 2, unread: 0 } });
+    const result = await messageApi.markConversationRead('7');
+    expect(client.put).toHaveBeenCalledWith('/messages/by-request/7/read');
+    expect(result).toEqual({ updated: 2, unread: 0 });
   });
 });
 
 describe('messageApi.deleteMessage', () => {
-  it('soft-deletes a message sent by the current user', async () => {
-    localStorage.setItem('token', BOB_TOKEN);
-    const sent = await messageApi.send('cr1', 'temp message');
-    const deleted = await messageApi.deleteMessage(sent.id);
+  it('soft-deletes a message via the endpoint and maps the result', async () => {
+    client.delete.mockResolvedValueOnce({ data: { ...SNAKE_MSG, deleted: true } });
+    const deleted = await messageApi.deleteMessage('1');
+    expect(client.delete).toHaveBeenCalledWith('/messages/1');
     expect(deleted.deleted).toBe(true);
-
-    const msgs = await messageApi.getByRequest('cr1');
-    expect(msgs.find((m) => m.id === sent.id)!.deleted).toBe(true);
   });
 });
